@@ -222,10 +222,12 @@ func (s *Session) AcceptStream() (*Stream, error) {
 }
 
 // AcceptStream is used to block until the next available stream
-// is ready to be accepted.
+// is ready to be accepted. When the context is canceled, the session
+// is automatically closed.
 func (s *Session) AcceptStreamWithContext(ctx context.Context) (*Stream, error) {
 	select {
 	case <-ctx.Done():
+		s.Close()
 		return nil, ctx.Err()
 	case stream := <-s.acceptCh:
 		if err := stream.sendWindowUpdate(); err != nil {
