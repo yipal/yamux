@@ -1351,3 +1351,65 @@ func TestSession_ConnectionWriteTimeout(t *testing.T) {
 
 	wg.Wait()
 }
+
+// TestCloseSessionBytesSent verifies that if a user Write()s bytes to
+// a Stream, those bytes are sent, even if the user calls
+// Session.Close() right after writing the bytes.
+func TestCloseSessionBytesSent(t *testing.T) {
+	client, server := testClientServerConfig(testConfNoKeepAlive())
+	defer client.Close()
+	defer server.Close()
+
+	conn1, err := client.Open()
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	totalReceived := 0
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		// Read bytes from stream until EOF.
+		conn2, err := server.Accept()
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		log.Printf("accepted stream\n")
+
+		buf := make([]byte, 4096)
+		for {
+			n, err := conn2.Read(buf)
+			totalReceived += n
+			log.Printf("read %d bytes\n", n)
+			if err == io.EOF {
+				log.Printf("read EOF\n")
+				break
+			} else if err != nil {
+				t.Fatalf("unexpected err: %v", err)
+				break
+			}
+		}
+	}()
+
+	totalSent := 0
+	for i := 0; i < 100; i++ {
+		buf := make([]byte, 4096)
+		n, err := conn1.Write(buf)
+		if err != nil {
+			t.Fatalf("could not write: %v", err)
+		}
+		totalSent += n
+	}
+	if err := conn1.Close(); err != nil {
+		t.Fatalf("failed to close stream: %v", err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatalf("failed to close client session: %v", err)
+	}
+
+	wg.Wait()
+	if totalSent != totalReceived {
+		t.Fatalf("totalSent %d should equal totalReceived %d", totalSent, totalReceived)
+	}
+}
